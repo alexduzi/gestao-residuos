@@ -461,4 +461,4 @@ ambiente configuradas como secrets/variables do respectivo GitHub Environment.
 
 ## Equipe
 
-Projeto desenvolvido para a disciplina de Java Advanced — FIAP 2026.
+Projeto desenvolvido para a disciplina de DEVOPS — FIAP 2026.
