@@ -1,0 +1,99 @@
+# =========================================================================
+# Compiled Source & Build Tools
+# =========================================================================
+# Byte-code and compiled classes
+*.class
+
+# Log files
+*.log
+logs/
+
+# Blueprints and packaging 
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Maven build directory
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+# Avoid ignoring Maven wrapper support files
+!.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
+
+# Gradle build directory
+build/
+.gradle/
+/bin/
+# Avoid ignoring Gradle wrapper support files
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# =========================================================================
+# IDE & Editors
+# =========================================================================
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+.idea_modules/
+
+# Eclipse
+.metadata/
+.classpath
+.project
+.settings/
+*.launch
+.factorypath
+
+# Visual Studio Code
+.vscode/
+
+# STS (Spring Tool Suite) Cache
+.sts4-cache/
+.springBeans/
+
+# NetBeans
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# =========================================================================
+# Environment & Secrets (Crucial for Spring Boot)
+# =========================================================================
+# Local environment overrides
+.env
+.env.local
+*.properties.local
+*.yml.local
+
+# Optional: Only ignore application properties if they contain real production secrets.
+# It is better to use environment variables instead of tracking secrets in Git.
+# application-local.properties
+# application-prod.properties
+
+# =========================================================================
+# Operating System Files
+# =========================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Ehthumbs.db
+Desktop.ini
