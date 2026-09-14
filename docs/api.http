@@ -1,0 +1,636 @@
+### =============================================================
+### ESG Gestão de Resíduos - API HTTP
+### Compatível com: IntelliJ IDEA HTTP Client / VS Code REST Client
+### =============================================================
+
+@baseUrl = http://localhost:8080/api/v1
+
+### Após fazer login ou register, copie o token retornado
+### e cole abaixo substituindo o valor de @token
+@token = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbkBlc2cuY29tIiwicm9sZSI6IkFETUlOIiwiaWF0IjoxNzc3MTUyMDc3LCJleHAiOjE3NzcyMzg0Nzd9.BdhBB2SDHqP5bzglpq1w0gVKEg-u2pc3vWDeE5LcqVE
+
+###
+
+### =============================================================
+### AUTH
+### =============================================================
+
+### [1] Registrar novo usuário (USER)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nome": "João Silva",
+  "email": "joao@email.com",
+  "senha": "123456"
+}
+
+###
+
+### [2] Login - retorna o JWT token (copie e cole em @token acima)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@esg.com",
+  "senha": "admin123"
+}
+
+###
+
+### [3] Login usuário normal - retorna o JWT token (copie e cole em @token acima)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@esg.com",
+  "senha": "user123"
+}
+
+###
+
+### [4] Login - validação: senha incorreta (espera 403)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@esg.com",
+  "senha": "senhaerrada"
+}
+
+###
+
+### [5] Login - validação: email inválido (espera 422)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "nao-e-um-email",
+  "senha": "123456"
+}
+
+###
+
+### [6] Register - validação: senha muito curta (espera 422)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nome": "Teste",
+  "email": "teste@email.com",
+  "senha": "123"
+}
+
+###
+
+### [7] Register - validação: email duplicado (espera 409)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nome": "Outro João",
+  "email": "joao@email.com",
+  "senha": "123456"
+}
+
+
+### =============================================================
+### TIPO RESÍDUO
+### =============================================================
+
+### [8] Listar todos os tipos de resíduo
+GET {{baseUrl}}/tipos-residuo
+Authorization: Bearer {{token}}
+
+###
+
+### [9] Buscar tipo de resíduo por ID
+GET {{baseUrl}}/tipos-residuo/1
+Authorization: Bearer {{token}}
+
+###
+
+### [10] Buscar tipo inexistente (espera 404)
+GET {{baseUrl}}/tipos-residuo/9999
+Authorization: Bearer {{token}}
+
+###
+
+### [11] Criar novo tipo de resíduo (requer ADMIN)
+POST {{baseUrl}}/tipos-residuo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "descricao": "Borracha",
+  "reciclavel": "S",
+  "perigoso": "N"
+}
+
+###
+
+### [12] Criar tipo - validação: campo reciclavel inválido (espera 422)
+POST {{baseUrl}}/tipos-residuo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "descricao": "Borracha",
+  "reciclavel": "X",
+  "perigoso": "N"
+}
+
+###
+
+### [13] Criar tipo - validação: descrição em branco (espera 422)
+POST {{baseUrl}}/tipos-residuo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "descricao": "",
+  "reciclavel": "S",
+  "perigoso": "N"
+}
+
+###
+
+### [14] Atualizar tipo de resíduo (requer ADMIN)
+PUT {{baseUrl}}/tipos-residuo/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "descricao": "Plástico Duro",
+  "reciclavel": "S",
+  "perigoso": "N"
+}
+
+###
+
+### [15] Deletar tipo de resíduo (requer ADMIN)
+### Obs: deletar tipo com pontos de coleta vinculados retorna 400
+DELETE {{baseUrl}}/tipos-residuo/7
+Authorization: Bearer {{token}}
+
+###
+
+### [16] Deletar tipo com FK vinculada (espera 400 DatabaseException)
+DELETE {{baseUrl}}/tipos-residuo/1
+Authorization: Bearer {{token}}
+
+
+### =============================================================
+### PONTO DE COLETA
+### =============================================================
+
+### [17] Listar todos os pontos de coleta
+GET {{baseUrl}}/pontos-coleta
+Authorization: Bearer {{token}}
+
+###
+
+### [18] Buscar ponto de coleta por ID
+GET {{baseUrl}}/pontos-coleta/1
+Authorization: Bearer {{token}}
+
+###
+
+### [19] Buscar ponto inexistente (espera 404)
+GET {{baseUrl}}/pontos-coleta/9999
+Authorization: Bearer {{token}}
+
+###
+
+### [20] Filtrar pontos de coleta por tipo de resíduo
+GET {{baseUrl}}/pontos-coleta/tipo/1
+Authorization: Bearer {{token}}
+
+###
+
+### [21] Criar novo ponto de coleta (requer ADMIN)
+POST {{baseUrl}}/pontos-coleta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Rua Novo Ponto, 42 - São Paulo/SP",
+  "idTipo": 2,
+  "capacidadeMaxKg": 750.00,
+  "volumeAtualKg": 0.00
+}
+
+###
+
+### [22] Criar ponto - validação: tipo inexistente (espera 404)
+POST {{baseUrl}}/pontos-coleta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Rua Teste, 1",
+  "idTipo": 9999,
+  "capacidadeMaxKg": 500.00,
+  "volumeAtualKg": 0.00
+}
+
+###
+
+### [23] Criar ponto - validação: capacidade negativa (espera 422)
+POST {{baseUrl}}/pontos-coleta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Rua Teste, 1",
+  "idTipo": 1,
+  "capacidadeMaxKg": -100.00,
+  "volumeAtualKg": 0.00
+}
+
+###
+
+### [24] Atualizar ponto de coleta (requer ADMIN)
+PUT {{baseUrl}}/pontos-coleta/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Av. Paulista, 1000 - São Paulo/SP (Atualizado)",
+  "idTipo": 1,
+  "capacidadeMaxKg": 600.00,
+  "volumeAtualKg": 120.50
+}
+
+###
+
+### [25] Atualizar volume do ponto - abaixo de 90% (sem alerta)
+PATCH {{baseUrl}}/pontos-coleta/1/volume
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "volumeAtualKg": 300.00
+}
+
+###
+
+### [26] Atualizar volume do ponto - acima de 90% (GERA ALERTA automático)
+### Ponto 1 tem capacidade 500kg → 90% = 450kg
+PATCH {{baseUrl}}/pontos-coleta/1/volume
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "volumeAtualKg": 460.00
+}
+
+###
+
+### [27] Atualizar volume - validação: valor negativo (espera 422)
+PATCH {{baseUrl}}/pontos-coleta/1/volume
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "volumeAtualKg": -50.00
+}
+
+###
+
+### [28] Deletar ponto de coleta (requer ADMIN)
+DELETE {{baseUrl}}/pontos-coleta/6
+Authorization: Bearer {{token}}
+
+
+### =============================================================
+### COLETA REALIZADA
+### =============================================================
+
+### [29] Listar todas as coletas
+GET {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+
+###
+
+### [30] Buscar coleta por ID
+GET {{baseUrl}}/coletas/1
+Authorization: Bearer {{token}}
+
+###
+
+### [31] Buscar coleta inexistente (espera 404)
+GET {{baseUrl}}/coletas/9999
+Authorization: Bearer {{token}}
+
+###
+
+### [32] Listar coletas de um ponto específico
+GET {{baseUrl}}/coletas/ponto/1
+Authorization: Bearer {{token}}
+
+###
+
+### [33] Registrar nova coleta (requer ADMIN)
+### Efeitos automáticos:
+### - Zera volumeAtualKg do ponto
+### - Atualiza CONSOLIDADO_RECICLAGEM do mês
+### - Resolve alertas pendentes do ponto
+POST {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idPonto": 1,
+  "dataColeta": "2026-04-25",
+  "pesoRecolhidoKg": 460.00,
+  "empresaResponsavel": "EcoRecicla LTDA"
+}
+
+###
+
+### [34] Registrar coleta - validação: peso negativo (espera 422)
+POST {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idPonto": 1,
+  "dataColeta": "2026-04-25",
+  "pesoRecolhidoKg": -10.00,
+  "empresaResponsavel": "EcoRecicla LTDA"
+}
+
+###
+
+### [35] Registrar coleta - validação: ponto inexistente (espera 404)
+POST {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idPonto": 9999,
+  "dataColeta": "2026-04-25",
+  "pesoRecolhidoKg": 100.00,
+  "empresaResponsavel": "EcoRecicla LTDA"
+}
+
+###
+
+### [36] Registrar coleta - validação: empresa em branco (espera 422)
+POST {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idPonto": 2,
+  "dataColeta": "2026-04-25",
+  "pesoRecolhidoKg": 50.00,
+  "empresaResponsavel": ""
+}
+
+
+### =============================================================
+### ALERTA DE CAPACIDADE
+### =============================================================
+
+### [37] Listar todos os alertas (requer ADMIN)
+GET {{baseUrl}}/alertas
+Authorization: Bearer {{token}}
+
+###
+
+### [38] Listar apenas alertas pendentes (status = N) (requer ADMIN)
+GET {{baseUrl}}/alertas/pendentes
+Authorization: Bearer {{token}}
+
+###
+
+### [39] Listar alertas de um ponto específico
+GET {{baseUrl}}/alertas/ponto/1
+Authorization: Bearer {{token}}
+
+###
+
+### [40] Resolver alerta manualmente (requer ADMIN)
+PATCH {{baseUrl}}/alertas/1/resolver
+Authorization: Bearer {{token}}
+
+###
+
+### [41] Resolver alerta já resolvido (espera 409 BusinessException)
+PATCH {{baseUrl}}/alertas/1/resolver
+Authorization: Bearer {{token}}
+
+###
+
+### [42] Resolver alerta inexistente (espera 404)
+PATCH {{baseUrl}}/alertas/9999/resolver
+Authorization: Bearer {{token}}
+
+
+### =============================================================
+### CONSOLIDADO DE RECICLAGEM
+### =============================================================
+
+### [43] Listar todos os consolidados
+GET {{baseUrl}}/consolidado
+Authorization: Bearer {{token}}
+
+###
+
+### [44] Filtrar consolidado por mês/ano
+### Formato: MM-YYYY (o controller converte internamente para MM/YYYY)
+GET {{baseUrl}}/consolidado/mes/09-2025
+Authorization: Bearer {{token}}
+
+###
+
+### [45] Filtrar consolidado por tipo de resíduo
+GET {{baseUrl}}/consolidado/tipo/1
+Authorization: Bearer {{token}}
+
+###
+
+### [46] Filtrar consolidado - mês sem dados (espera lista vazia)
+GET {{baseUrl}}/consolidado/mes/01-2020
+Authorization: Bearer {{token}}
+
+
+### =============================================================
+### NOTIFICAÇÃO
+### =============================================================
+
+### [47] Criar notificação manual (requer ADMIN)
+POST {{baseUrl}}/notificacoes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idUsuario": 1,
+  "idPonto": 3,
+  "mensagem": "O ponto de coleta de Vidro na Av. Brasil está próximo da capacidade máxima. Coleta urgente necessária."
+}
+
+###
+
+### [48] Criar notificação - validação: mensagem muito longa (espera 422)
+POST {{baseUrl}}/notificacoes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idUsuario": 1,
+  "idPonto": 1,
+  "mensagem": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}
+
+###
+
+### [49] Criar notificação - validação: usuário inexistente (espera 404)
+POST {{baseUrl}}/notificacoes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idUsuario": 9999,
+  "idPonto": 1,
+  "mensagem": "Teste de usuário inexistente"
+}
+
+###
+
+### [50] Listar notificações de um usuário
+GET {{baseUrl}}/notificacoes/usuario/1
+Authorization: Bearer {{token}}
+
+###
+
+### [51] Marcar notificação como lida
+PATCH {{baseUrl}}/notificacoes/1/lida
+Authorization: Bearer {{token}}
+
+###
+
+### [52] Marcar notificação inexistente como lida (espera 404)
+PATCH {{baseUrl}}/notificacoes/9999/lida
+Authorization: Bearer {{token}}
+
+
+### =============================================================
+### SEGURANÇA - testes de autorização
+### =============================================================
+
+### [53] Acessar endpoint sem token (espera 403)
+GET {{baseUrl}}/tipos-residuo
+
+###
+
+### [54] Acessar endpoint com token inválido (espera 403)
+GET {{baseUrl}}/tipos-residuo
+Authorization: Bearer token.invalido.aqui
+
+###
+
+### [55] USER tentando criar tipo de resíduo (espera 403)
+### Faça login com joao@email.com e use esse token aqui
+POST {{baseUrl}}/tipos-residuo
+Authorization: Bearer TOKEN_DE_USER_AQUI
+Content-Type: application/json
+
+{
+  "descricao": "Teste USER",
+  "reciclavel": "S",
+  "perigoso": "N"
+}
+
+
+### =============================================================
+### FLUXO COMPLETO - cenário de uso real
+### =============================================================
+
+### PASSO 1: Login como admin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@esg.com",
+  "senha": "admin123"
+}
+
+###
+
+### PASSO 2: Criar um novo tipo de resíduo
+POST {{baseUrl}}/tipos-residuo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "descricao": "Pilhas e Baterias",
+  "reciclavel": "S",
+  "perigoso": "S"
+}
+
+###
+
+### PASSO 3: Criar um ponto de coleta para o novo tipo
+POST {{baseUrl}}/pontos-coleta
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Shopping Iguatemi - Campinas/SP",
+  "idTipo": 8,
+  "capacidadeMaxKg": 100.00,
+  "volumeAtualKg": 0.00
+}
+
+###
+
+### PASSO 4: Simular enchimento - atualizar volume para 92kg (> 90%)
+### Isso deve gerar um alerta automaticamente
+PATCH {{baseUrl}}/pontos-coleta/6/volume
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "volumeAtualKg": 92.00
+}
+
+###
+
+### PASSO 5: Verificar que o alerta foi criado
+GET {{baseUrl}}/alertas/ponto/6
+Authorization: Bearer {{token}}
+
+###
+
+### PASSO 6: Registrar coleta - zera volume, atualiza consolidado e resolve alerta
+POST {{baseUrl}}/coletas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "idPonto": 6,
+  "dataColeta": "2026-04-25",
+  "pesoRecolhidoKg": 92.00,
+  "empresaResponsavel": "BateriaRecicla SP"
+}
+
+###
+
+### PASSO 7: Confirmar que volume voltou a zero
+GET {{baseUrl}}/pontos-coleta/6
+Authorization: Bearer {{token}}
+
+###
+
+### PASSO 8: Confirmar que alerta foi resolvido automaticamente
+GET {{baseUrl}}/alertas/ponto/6
+Authorization: Bearer {{token}}
+
+###
+
+### PASSO 9: Verificar consolidado do mês atual
+GET {{baseUrl}}/consolidado/mes/04-2026
+Authorization: Bearer {{token}}
