@@ -1,6 +1,146 @@
-# API RESTful de Gestão de Resíduos e Reciclagem (ESG)
+# Projeto - Gestão de Resíduos e Reciclagem (ESG)
 
-API RESTful desenvolvida com Spring Boot para gerenciamento de resíduos e reciclagem, tema ESG da disciplina de Java Advanced (FIAP).
+API RESTful desenvolvida com Spring Boot para gestão de resíduos e reciclagem, tema ESG.
+Projeto da disciplina Java Advanced (FIAP), adaptado nesta atividade para incorporar um
+pipeline de CI/CD completo com deploy automatizado em dois ambientes (staging e produção).
+
+---
+
+## Como executar localmente com Docker
+
+```bash
+cp .env.example .env
+# edite o .env se quiser trocar DB_USER/DB_PASS/JWT_SECRET
+docker compose up --build
+```
+
+Isso sobe dois containers: `oracle` (Oracle XE 21, leva de 1 a 3 minutos para inicializar na
+primeira vez) e `app` (a API, que só inicia depois que o Oracle responde saudável).
+
+- API: `http://localhost:8080`
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- Health check: `http://localhost:8080/actuator/health`
+
+Para rodar só a aplicação, apontando para um Oracle externo já existente (sem subir o
+container do banco):
+
+```bash
+docker build -t esg-residuos-app:latest .
+docker run -d -p 8080:8080 \
+  -e DB_USER=seu_usuario -e DB_PASS=sua_senha \
+  -e SPRING_DATASOURCE_URL='jdbc:oracle:thin:@host:1521:SID' \
+  esg-residuos-app:latest
+```
+
+---
+
+## Pipeline CI/CD
+
+**Ferramenta**: GitHub Actions, com um workflow único em
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml), disparado em todo push/PR para
+`main` (e manualmente via `workflow_dispatch`).
+
+**Etapas** (jobs em sequência, cada um dependendo do anterior):
+
+1. **`build-and-test`**: roda em todo push e pull request. Executa `./mvnw test` (profile
+   `test`, H2 em memória, sem depender de nenhum banco externo) e empacota o `.jar`, publicado
+   como artifact do workflow.
+2. **`deploy-staging`**: baixa o jar e publica no Azure App Service de staging
+   (`azure/webapps-deploy@v3`), autenticado via OIDC. Faz um smoke test em
+   `GET /actuator/health` antes de considerar o job concluído.
+3. **`deploy-production`**: só roda depois que o staging passa. Mesma lógica de deploy e
+   smoke test, publicando no Azure App Service de produção.
+
+Cada ambiente é um Azure App Service (Linux, Java 21) separado, com suas próprias variáveis
+de ambiente (`SPRING_PROFILES_ACTIVE`, credenciais de banco, `JWT_SECRET`) configuradas
+diretamente no App Service. Staging roda com H2 em memória (efêmero); produção roda com o
+Oracle da FIAP. Chegamos a uma esteira funcional cobrindo build, testes automatizados e deploy
+automatizado nos dois ambientes exigidos pela atividade.
+
+---
+
+## Containerização
+
+**Dockerfile** (build multistage):
+
+```dockerfile
+# ---- Build stage ----
+FROM eclipse-temurin:21-jdk-alpine AS build
+WORKDIR /app
+
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
+
+COPY src/ src/
+RUN ./mvnw -B -ntp clean package -DskipTests
+
+# ---- Runtime stage ----
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+RUN apk add --no-cache curl \
+    && addgroup -S spring && adduser -S spring -G spring
+COPY --from=build /app/target/*.jar app.jar
+USER spring:spring
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
+    CMD curl --fail http://localhost:8080/actuator/health || exit 1
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+- **Build multistage**: o estágio de build baixa as dependências antes de copiar o código-fonte
+  (aproveita cache de camada do Docker), e só o `.jar` final vai para a imagem de runtime, que
+  fica bem menor que a imagem de build.
+- **Usuário não-root** (`spring:spring`) rodando a aplicação.
+- **`HEALTHCHECK`** embutido, batendo em `/actuator/health`. É usado pelo `docker-compose.yml`
+  (`depends_on: condition: service_healthy`) e é compatível com o probe de saúde do Azure App
+  Service.
+
+**`docker-compose.yml`** orquestra dois serviços, com volume, variáveis de ambiente e rede:
+
+- `oracle` (`gvenzl/oracle-xe:21-slim`), com volume nomeado `oracle_data` para persistir os
+  dados entre restarts, e healthcheck próprio.
+- `app`, com variáveis de ambiente injetadas via `.env`, `depends_on: oracle: condition:
+  service_healthy`, e seu próprio healthcheck.
+
+Os dois serviços compartilham a rede default criada automaticamente pelo Compose (`app` fala
+com `oracle` pelo nome do serviço, `oracle:1521`).
+
+---
+
+## Prints do funcionamento
+
+### Pipeline (GitHub Actions)
+
+Execução completa do workflow, com build, testes e deploy em staging e produção, todos verdes:
+
+![Pipeline completo no GitHub Actions](evidencias/github_deploy.png)
+
+Os dois Azure App Service provisionados (um por ambiente):
+
+![App Services no portal do Azure](evidencias/appservices_azure.png)
+
+### Staging
+
+![Deploy Center - staging](evidencias/deploy_staging.png)
+
+![Health check - staging](evidencias/staging_health.png)
+
+![Swagger UI - staging](evidencias/staging_swagger.png)
+
+![Fluxo autenticado (registro + JWT) - staging](evidencias/staging_swagger_test.png)
+
+### Produção
+
+![Deploy Center - produção](evidencias/deploy_prod.png)
+
+![Health check - produção](evidencias/prod_health.png)
+
+![Swagger UI - produção](evidencias/prod_swagger.png)
+
+![Fluxo autenticado (registro + JWT) - produção](evidencias/prod_swagger_test.png)
+
+![Dados persistidos no Oracle da FIAP (produção)](evidencias/prod_db_valid.png)
 
 ---
 
@@ -10,7 +150,7 @@ API RESTful desenvolvida com Spring Boot para gerenciamento de resíduos e recic
 - Spring Boot 3.3.4
 - Spring Security + JWT (jjwt 0.12.6)
 - Spring Data JPA + Hibernate
-- Oracle Database (ojdbc11)
+- Oracle Database (ojdbc11) / H2 (staging e testes)
 - Flyway (migrações de banco)
 - Spring Boot Actuator (health check)
 - SpringDoc OpenAPI (Swagger UI)
@@ -21,28 +161,16 @@ API RESTful desenvolvida com Spring Boot para gerenciamento de resíduos e recic
 
 ---
 
-## Como executar localmente com Docker
+## Documentação funcional
 
-```bash
-cp .env.example .env
-# edite .env se quiser trocar DB_USER/DB_PASS/JWT_SECRET
-docker compose up --build
-```
+<details>
+<summary>Estrutura do projeto, endpoints, regras de negócio e configuração</summary>
 
-Isso sobe dois containers: `oracle` (Oracle XE 21, leva ~1–3 min para inicializar na primeira
-vez) e `app` (a API, que só inicia depois que o Oracle responde saudável). A API fica
-disponível em `http://localhost:8080`; Swagger UI em `http://localhost:8080/swagger-ui.html`;
-health check em `http://localhost:8080/actuator/health`. Detalhes completos, variações (Docker
-puro sem compose, build/push de imagem, limpeza) e troubleshooting na seção
-[Containerização](#containerização) abaixo.
-
----
-
-## Estrutura do projeto
+### Estrutura do projeto
 
 ```
 src/
-├── config/               # CORS
+├── config/               # CORS, OpenAPI
 ├── controller/           # Endpoints REST
 ├── domain/               # Entidades JPA
 ├── dto/
@@ -61,405 +189,56 @@ resources/
     └── V3__insert_users.sql        # Usuários padrão do sistema
 ```
 
----
-
-## Configuração
-
-### Pré-requisitos
-
-- Java 21+
-- Maven 3.9+
-- Acesso ao Oracle Database (instância local, Docker ou FIAP cloud)
-
-### Variáveis de ambiente
-
-| Variável       | Padrão              | Descrição                        |
-|----------------|---------------------|----------------------------------|
-| `DB_USER`      | `system`            | Usuário do Oracle                |
-| `DB_PASS`      | `oracle`            | Senha do Oracle                  |
-| `JWT_SECRET`   | *(valor embutido)*  | Secret Base64 para assinar o JWT |
-| `JWT_DURATION` | `86400`             | Duração do token em segundos     |
-| `CORS_ORIGINS` | `*`                 | Origens permitidas por CORS      |
-
-Um `.env.example` está disponível na raiz do projeto. Copie para `.env` (`cp .env.example
-.env`) antes de rodar `docker compose up`.
-
-Não esqueça de trocar as variáveis no arquivo application-dev.properties
-
-spring.datasource.username=${DB_USER:sua_matricula_fiap}
-
-spring.datasource.password=${DB_PASS:sua_senha}
-
 ### Profiles
 
 | Profile | Banco | Flyway | Uso |
 |---|---|---|---|
-| `test` | H2 in-memory (`ddl-auto=create-drop`) | Off | Padrão, usado em CI e nos testes locais |
-| `staging` | H2 in-memory **em modo Oracle** (`MODE=Oracle`) | On | Deploy em staging (Azure) |
-| `dev` | Oracle (XE local via Docker Compose, ou FIAP se fora do compose) | On | Desenvolvimento com banco real |
-| `prod` | Oracle da FIAP (`oracle.fiap.com.br`) | On | Deploy em produção (Azure) |
-
-O profile ativo padrão é `test`. Para rodar com Oracle localmente, passe
-`--spring.profiles.active=dev` ou configure `SPRING_PROFILES_ACTIVE=dev`.
-
-`staging` e `prod` existem para o pipeline de CI/CD (ver seção
-[Pipeline CI/CD](#pipeline-cicd)): `staging` roda em H2 com o Flyway ligado, executando as
-**mesmas migrations** (`db/migration/`) que rodam contra o Oracle real. É efêmero de
-propósito (reseta a cada deploy), já que não existe uma segunda instância Oracle disponível
-além da da FIAP. `prod` aponta para o Oracle da FIAP com as credenciais reais.
-
----
-
-## Rodando localmente
-
-### Opção 1: Maven direto (profile test, H2)
-
-```bash
-./mvnw spring-boot:run
-```
-
-### Opção 2: Maven com Oracle local (profile dev)
-
-```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
-```
-
-### Opção 3: Docker Compose (app + Oracle XE)
-
-```bash
-docker-compose up --build
-```
-
-A API sobe em `http://localhost:8080`.
-
----
-
-## Containerização
-
-**Dockerfile** (build multistage):
-
-1. **Estágio `build`** (`eclipse-temurin:21-jdk-alpine`): copia `.mvn/`, `mvnw` e `pom.xml`,
-   baixa dependências (`dependency:go-offline`, aproveitando cache de camada do Docker), só
-   depois copia `src/` e empacota (`clean package -DskipTests`, já que os testes rodaram na
-   etapa de CI antes da imagem ser construída e não precisam rodar de novo aqui).
-2. **Estágio runtime** (`eclipse-temurin:21-jre-alpine`, bem menor que a imagem de build):
-   copia só o jar final, instala `curl` (necessário para o `HEALTHCHECK`), roda como usuário
-   não-root `spring:spring`, expõe a porta 8080.
-3. `HEALTHCHECK` embutido na imagem (`curl --fail http://localhost:8080/actuator/health`).
-   O Docker marca o container como `unhealthy` se a aplicação não responder, o que o
-   `docker-compose.yml` usa via `depends_on: condition: service_healthy` em qualquer serviço
-   que dependa da API, e que o Azure App Service também consegue usar como probe.
-
-**docker-compose.yml** (orquestra dois serviços):
-
-- `oracle` (`gvenzl/oracle-xe:21-slim`), com volume nomeado `oracle_data` para persistir os
-  dados do banco entre restarts, e `healthcheck` próprio (`healthcheck.sh` da imagem) para o
-  `app` só subir depois que o Oracle estiver realmente pronto a aceitar conexões.
-- `app`, com variáveis de ambiente injetadas do `.env` (com fallback via `${VAR:-default}` caso
-  o `.env` não exista), `depends_on: oracle: condition: service_healthy`, e seu próprio
-  `healthcheck` batendo em `/actuator/health`.
-
-Os dois serviços compartilham a rede default criada automaticamente pelo Compose (comunicação
-`app` → `oracle` pelo nome do serviço, `oracle:1521`).
-
-O projeto pode ser executado de duas formas com Docker:
-
-- **A)** `docker-compose`: sobe a aplicação **junto** com um Oracle XE local em containers (banco isolado, descartável).
-- **B)** `docker` puro: sobe **apenas** o container da aplicação, apontando para um Oracle externo (FIAP cloud, instância em outro servidor, RDS, etc.). Útil quando o desenvolvedor já tem um banco disponível e quer evitar rodar o Oracle XE localmente.
-
-### A) Docker Compose (app + Oracle XE)
-
-Sobe os dois serviços (`oracle` e `app`) definidos no `docker-compose.yml`. O Oracle XE leva ~1–3 min para inicializar na primeira vez; o `healthcheck` faz a aplicação esperar o banco ficar pronto antes de subir.
-
-Conexão usada pela aplicação dentro do compose:
-
-- Host: `oracle` (nome do serviço)
-- Service: `XEPDB1` (PDB padrão da imagem `gvenzl/oracle-xe:21-slim`)
-- Usuário/senha: `app` / `app` (criados via `APP_USER` / `APP_USER_PASSWORD`)
-
-```bash
-# Build e subir em primeiro plano (logs no terminal)
-docker-compose up --build
-
-# Subir em background (detached)
-docker-compose up --build -d
-
-# Ver logs
-docker-compose logs -f app
-docker-compose logs -f oracle
-
-# Parar containers (mantém volumes)
-docker-compose stop
-
-# Derrubar containers e rede (mantém volumes)
-docker-compose down
-
-# Derrubar tudo, inclusive o volume do Oracle (zera o banco)
-docker-compose down -v
-
-# Rebuild forçando sem cache
-docker-compose build --no-cache
-```
-
-### B) Docker puro (app apontando para Oracle externo)
-
-Use este modo quando quiser rodar **somente** o container da aplicação e apontar para um banco em outro servidor (ex.: `oracle.fiap.com.br`).
-
-```bash
-# 1. Build da imagem
-docker build -t esg-residuos-app:latest .
-
-# 2. Rodar o container apontando para o Oracle remoto
-docker run -d \
-  --name esg-residuos-app \
-  -p 8080:8080 \
-  -e DB_USER=seu_usuario \
-  -e DB_PASS=sua_senha \
-  -e JWT_SECRET=sua-secret-base64 \
-  -e JWT_DURATION=86400 \
-  -e SPRING_DATASOURCE_URL='jdbc:oracle:thin:@oracle.fiap.com.br:1521:ORCL' \
-  esg-residuos-app:latest
-```
-
-> A `SPRING_DATASOURCE_URL` sobrescreve a URL definida em `application-dev.properties`. Aponte para o host/porta/SID do seu Oracle.
-> Se o banco estiver em `localhost` da máquina host (fora do container), use `host.docker.internal` (Mac/Windows) ou `--network host` (Linux) no lugar de `localhost`.
-
-### Build e publicação da imagem
-
-```bash
-# Build local com tag
-docker build -t esg-residuos-app:latest .
-
-# Build com tag versionada
-docker build -t esg-residuos-app:1.0.0 .
-
-# Tag para um registry (Docker Hub, GHCR, ECR, etc.)
-docker tag esg-residuos-app:latest seuusuario/esg-residuos-app:latest
-docker tag esg-residuos-app:latest ghcr.io/seuusuario/esg-residuos-app:1.0.0
-
-# Login no registry
-docker login                          # Docker Hub
-docker login ghcr.io                  # GitHub Container Registry
-
-# Push
-docker push seuusuario/esg-residuos-app:latest
-docker push ghcr.io/seuusuario/esg-residuos-app:1.0.0
-```
-
-### Acessar o container em execução
-
-```bash
-# Listar containers rodando
-docker ps
-
-# Abrir um shell (sh, já que a imagem é alpine e não tem bash)
-docker exec -it esg-residuos-app sh
-
-# Executar um comando único dentro do container
-docker exec -it esg-residuos-app ls /app
-docker exec -it esg-residuos-app java -version
-
-# Acessar o container do Oracle (compose)
-docker exec -it oracle-esg sh
-docker exec -it oracle-esg sqlplus system/oracle@//localhost:1521/XEPDB1
-docker exec -it oracle-esg sqlplus app/app@//localhost:1521/XEPDB1
-
-# Ver logs ao vivo
-docker logs -f esg-residuos-app
-```
-
-### Limpeza (prune / delete)
-
-```bash
-# Parar e remover um container específico
-docker stop esg-residuos-app && docker rm esg-residuos-app
-
-# Remover uma imagem específica
-docker rmi esg-residuos-app:latest
-
-# Forçar remoção (mesmo se houver containers usando)
-docker rmi -f esg-residuos-app:latest
-
-# Remover containers parados
-docker container prune
-
-# Remover imagens dangling (sem tag, geradas em rebuilds)
-docker image prune
-
-# Remover TODAS as imagens não usadas por nenhum container
-docker image prune -a
-
-# Remover volumes não usados (cuidado: apaga dados do Oracle se o container estiver removido)
-docker volume prune
-
-# Faxina geral: containers parados + redes não usadas + imagens dangling + cache de build
-docker system prune
-
-# Faxina TOTAL (inclui imagens não usadas e volumes, destrutivo)
-docker system prune -a --volumes
-```
-
-> **Atenção:** `docker system prune -a --volumes` e `docker volume prune` apagam dados persistidos (incluindo o volume `oracle_data` do compose). Só execute se realmente quiser zerar tudo.
-
----
-
-## Usuários padrão
-
-Criados automaticamente pela migração V3 ao rodar com o perfil `dev`.
-
-| E-mail           | Senha      | Role    |
-|------------------|------------|---------|
-| `admin@esg.com`  | `admin123` | `ADMIN` |
-| `user@esg.com`   | `user123`  | `USER`  |
-
-> O endpoint `POST /api/v1/auth/register` sempre cria usuários com role `USER`. Para criar um `ADMIN`, use o usuário padrão acima ou atualize diretamente no banco.
-
----
-
-## Documentação da API
-
-Com a aplicação rodando, acesse:
-
-- Swagger UI: `http://localhost:8080/swagger-ui.html`
-- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
-
-O arquivo `api.http` na raiz do projeto contém todos os endpoints prontos para uso no IntelliJ IDEA HTTP Client ou VS Code REST Client.
-
----
-
-## Endpoints
-
-| Grupo              | Prefixo                        | Autenticação |
-|--------------------|--------------------------------|--------------|
-| Autenticação       | `/api/v1/auth`                 | Público      |
-| Tipos de Resíduo   | `/api/v1/tipos-residuo`        | USER / ADMIN |
-| Pontos de Coleta   | `/api/v1/pontos-coleta`        | USER / ADMIN |
-| Coletas Realizadas | `/api/v1/coletas`              | USER / ADMIN |
-| Alertas            | `/api/v1/alertas`              | USER / ADMIN |
-| Consolidado        | `/api/v1/consolidado`          | USER         |
-| Notificações       | `/api/v1/notificacoes`         | USER / ADMIN |
-
-Operações de escrita (POST, PUT, PATCH, DELETE) exigem role `ADMIN`.
-
----
-
-## Regras de negócio principais
-
-- **Registro de coleta** (`POST /coletas`) dispara automaticamente:
-  1. Zera o `volumeAtualKg` do ponto de coleta
-  2. Atualiza ou cria o registro em `CONSOLIDADO_RECICLAGEM` do mês correspondente
-  3. Resolve alertas pendentes do ponto
-
-- **Atualização de volume** (`PATCH /pontos-coleta/{id}/volume`) gera automaticamente um `AlertaCapacidade` se o volume atingir ou ultrapassar 90% da capacidade máxima.
-
----
-
-## Banco de dados
-
-### Migrações
-
-O Flyway gerencia o esquema automaticamente no profile `dev`. As migrations ficam em `src/main/resources/db/migration/` e são executadas em ordem (`V1`, `V2`, `V3`).
-
-### Zerar o banco (Oracle)
-
-Caso precise resetar completamente o esquema (por exemplo, para reexecutar as migrations do zero), rode o script abaixo no SQL*Plus, SQL Developer ou qualquer cliente Oracle conectado ao schema correto:
-
-```sql
-BEGIN
-  -- 1. Apaga TODAS as tabelas e suas constraints
-  FOR t IN (SELECT table_name FROM user_tables) LOOP
-    EXECUTE IMMEDIATE 'DROP TABLE "' || t.table_name || '" CASCADE CONSTRAINTS';
-  END LOOP;
-  -- 2. Apaga as sequences, ignorando as protegidas pelo sistema
-  FOR s IN (SELECT sequence_name FROM user_sequences) LOOP
-    BEGIN
-      EXECUTE IMMEDIATE 'DROP SEQUENCE "' || s.sequence_name || '"';
-    EXCEPTION
-      WHEN OTHERS THEN
-        IF SQLCODE = -32794 THEN
-          NULL;
-        ELSE
-          RAISE;
-        END IF;
-    END;
-  END LOOP;
-END;
-/
-```
-
-Após executar, reinicie a aplicação com o profile `dev`, e o Flyway recria tudo automaticamente.
-
-> **Atenção:** esse script apaga todos os dados e objetos do schema atual. Não execute em ambientes compartilhados sem alinhamento com a equipe.
-
----
-
-## Pipeline CI/CD
-
-**Ferramenta**: GitHub Actions. Workflow em [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml),
-disparado em todo push/PR para `main`.
-
-**Etapas** (jobs, em ordem, cada um dependendo do anterior via `needs:`):
-
-1. **`build-and-test`**: roda em todo push e pull request. Sobe o profile `test` (H2
-   in-memory, sem depender do Oracle da FIAP), executa `./mvnw test`, depois empacota o jar
-   (`./mvnw package -DskipTests`). Publica os relatórios de teste e o **jar** como artifact do
-   workflow. Esse mesmo jar é reaproveitado pelos dois deploys seguintes (build once, deploy
-   twice).
-2. **`deploy-staging`**: roda em push na `main` ou quando disparado manualmente pela aba
-   Actions (`workflow_dispatch`), nunca em pull request. Baixa o jar publicado, autentica via
-   **OIDC** (`azure/login@v2`, com App Registration e federated credential gerados
-   automaticamente pelo Deployment Center do Azure — sem Service Principal/Publish Profile
-   configurados manualmente) e o envia direto para o Azure App Service de staging via
-   `azure/webapps-deploy@v3`, fazendo um smoke test em `GET /actuator/health` antes de
-   considerar o job bem-sucedido. O App Service já está configurado com
-   `SPRING_PROFILES_ACTIVE=staging` (H2 em memória, modo Oracle, ver seção Profiles)
-   diretamente nas suas Application settings.
-3. **`deploy-production`**: só roda depois que o deploy em staging passou. Mesma lógica (mesmo
-   jar, login OIDC + deploy + smoke test), com o trio de credenciais OIDC do App Service de
-   produção (`SPRING_PROFILES_ACTIVE=prod`, credenciais do Oracle da FIAP, também configuradas
-   direto nas Application settings do App Service, não pelo pipeline). Não há gate de
-   aprovação manual via GitHub Environments — declarar `environment:` no job mudaria o subject
-   do token OIDC (de `ref:refs/heads/main` para `environment:<nome>`) e quebraria o login
-   contra a federated credential existente, então o deploy em produção roda automaticamente
-   assim que staging passa.
-
-**Deploy direto do `.jar`, sem Docker/registry no Azure**: os dois Azure App Service
-(`staging` e `prod`) são configurados como **Publish: Code**, **Runtime: Java 21**,
-**Java Web Server Stack: Java SE (Embedded Web Server)**. O Spring Boot já empacota seu
-próprio Tomcat, então o App Service só precisa rodar o jar. O `Dockerfile`/`docker-compose.yml`
-deste repositório continuam existindo e sendo usados para rodar o projeto localmente
-(containerização/orquestração local); o Azure não usa a imagem Docker para o deploy porque a
-conta usada (Azure for Students) não tem acesso a Azure Container Registry.
-
-**Por que staging e produção usam bancos diferentes**: não existe uma segunda instância Oracle
-disponível além da da FIAP (usada em produção), então staging roda em H2 efêmero com o Flyway
-ligado. Isso já valida que os scripts de migration (`VARCHAR2`, `NUMBER`, `SEQ.NEXTVAL`,
-`TO_DATE`, `CHECK`) rodam sem erro antes de tocarem o Oracle real, sem precisar duplicar
-credenciais nem arriscar dados de um ambiente vazando pro outro. O efeito colateral aceito é
-que o banco de staging reseta a cada deploy/restart (não guarda nada entre execuções).
-
-**Infraestrutura de destino**: dois Azure App Service (Linux, Java 21/Java SE), um por ambiente
-(`gestao-residuos-staging` e `gestao-residuos-prod`), cada um com suas próprias Application
-settings (`SPRING_PROFILES_ACTIVE`, `JWT_SECRET`, `DB_USER`/`DB_PASS` em produção) configuradas
-direto no App Service. As credenciais OIDC de cada ambiente (client-id/tenant-id/
-subscription-id, um trio por App Service) ficam como secrets do repositório no GitHub,
-gerados automaticamente pelo Deployment Center do Azure — não são repository variables nem
-GitHub Environment secrets.
-
----
-
-## Prints do funcionamento
-
-> Deploy real em staging e produção já validado (pipeline verde de ponta a ponta). Falta só
-> anexar as capturas de tela abaixo.
-
-- [ ] Print do job `build-and-test` passando (GitHub Actions).
-- [ ] Print do job `deploy-staging` publicando o jar no App Service e do smoke test
-  (`{"status":"UP"}`) contra a URL de staging.
-- [ ] Print do job `deploy-production` passando e do smoke test contra a URL de produção.
-- [ ] Print do Swagger UI (`/swagger-ui.html`) funcionando em staging e produção.
-- [ ] Print de um fluxo real (registro/login + endpoint autenticado) funcionando em pelo
-  menos um dos dois ambientes.
+| `test` | H2 in-memory | Off | Padrão, usado em CI e nos testes locais |
+| `staging` | H2 in-memory em modo Oracle | On | Deploy em staging (Azure) |
+| `dev` | Oracle (XE local via Docker Compose, ou FIAP) | On | Desenvolvimento com banco real |
+| `prod` | Oracle da FIAP | On | Deploy em produção (Azure) |
+
+### Variáveis de ambiente
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `DB_USER` | `system` | Usuário do Oracle |
+| `DB_PASS` | `oracle` | Senha do Oracle |
+| `JWT_SECRET` | *(valor embutido)* | Secret Base64 para assinar o JWT |
+| `JWT_DURATION` | `86400` | Duração do token em segundos |
+| `CORS_ORIGINS` | `*` | Origens permitidas por CORS |
+
+### Usuários padrão (criados pela migração V3, profile `dev`)
+
+| E-mail | Senha | Role |
+|---|---|---|
+| `admin@esg.com` | `admin123` | `ADMIN` |
+| `user@esg.com` | `user123` | `USER` |
+
+### Endpoints
+
+| Grupo | Prefixo | Autenticação |
+|---|---|---|
+| Autenticação | `/api/v1/auth` | Público |
+| Tipos de Resíduo | `/api/v1/tipos-residuo` | USER / ADMIN |
+| Pontos de Coleta | `/api/v1/pontos-coleta` | USER / ADMIN |
+| Coletas Realizadas | `/api/v1/coletas` | USER / ADMIN |
+| Alertas | `/api/v1/alertas` | USER / ADMIN |
+| Consolidado | `/api/v1/consolidado` | USER |
+| Notificações | `/api/v1/notificacoes` | USER / ADMIN |
+
+Operações de escrita (POST, PUT, PATCH, DELETE) exigem role `ADMIN`. Documentação completa em
+`/swagger-ui.html` (com a aplicação rodando) ou no arquivo `api.http` na raiz do projeto.
+
+### Regras de negócio principais
+
+- **Registro de coleta** (`POST /coletas`) zera o `volumeAtualKg` do ponto de coleta, atualiza
+  ou cria o `CONSOLIDADO_RECICLAGEM` do mês correspondente, e resolve alertas pendentes do
+  ponto.
+- **Atualização de volume** (`PATCH /pontos-coleta/{id}/volume`) gera automaticamente um
+  `AlertaCapacidade` se o volume atingir ou ultrapassar 90% da capacidade máxima.
+
+</details>
 
 ---
 
@@ -467,16 +246,16 @@ GitHub Environment secrets.
 
 | Item | OK |
 |---|---|
-| Projeto compactado em `.ZIP` com estrutura organizada | ☐ |
+| Projeto compactado em `.ZIP` com estrutura organizada | ☑ |
 | Dockerfile funcional | ☑ |
 | `docker-compose.yml` ou arquivos Kubernetes | ☑ |
 | Pipeline com etapas de build, teste e deploy | ☑ |
-| `README.md` com instruções e prints | ☐ (falta anexar os prints) |
-| Documentação técnica com evidências (PDF ou PPT) | ☐ |
+| `README.md` com instruções e prints | ☑ |
+| Documentação técnica com evidências (PDF ou PPT) | ☑ |
 | Deploy realizado nos ambientes staging e produção | ☑ |
 
 ---
 
 ## Equipe
 
-Projeto desenvolvido para a disciplina de DEVOPS, FIAP 2026.
+Projeto desenvolvido para a disciplina de DevOps, FIAP 2026.
