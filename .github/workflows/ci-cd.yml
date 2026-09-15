@@ -54,7 +54,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Deploy em staging. Ambiente "staging" do GitHub -- secrets/vars proprios
-  # (Environment), sem approval obrigatorio. So roda em push na main (nao em PR).
+  # (Environment), sem approval obrigatorio. Roda em push na main ou disparo manual
+  # (workflow_dispatch) -- nao roda em pull request.
   #
   # Deploy direto do .jar (Azure App Service, stack "Java SE / Embedded Web
   # Server") -- nao usa Azure Container Registry nem imagem Docker: a conta
@@ -72,7 +73,7 @@ jobs:
   deploy-staging:
     name: Deploy (staging)
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: staging

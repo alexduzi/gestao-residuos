@@ -405,7 +405,8 @@ disparado em todo push/PR para `main`.
    (`./mvnw package -DskipTests`). Publica os relatórios de teste e o **jar** como artifact do
    workflow. Esse mesmo jar é reaproveitado pelos dois deploys seguintes (build once, deploy
    twice).
-2. **`deploy-staging`**: GitHub Environment `staging`, só em push na `main`. Baixa o jar
+2. **`deploy-staging`**: GitHub Environment `staging`, roda em push na `main` ou quando
+   disparado manualmente pela aba Actions (`workflow_dispatch`), nunca em pull request. Baixa o jar
    publicado e o envia direto para o Azure App Service de staging via
    `azure/webapps-deploy@v3`, autenticado por **Publish Profile** (secret do GitHub, gerado
    pelo próprio App Service, não Service Principal/OIDC), e faz um smoke test em
