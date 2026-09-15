@@ -405,21 +405,23 @@ disparado em todo push/PR para `main`.
    (`./mvnw package -DskipTests`). Publica os relatórios de teste e o **jar** como artifact do
    workflow. Esse mesmo jar é reaproveitado pelos dois deploys seguintes (build once, deploy
    twice).
-2. **`deploy-staging`**: GitHub Environment `staging`, roda em push na `main` ou quando
-   disparado manualmente pela aba Actions (`workflow_dispatch`), nunca em pull request. Baixa o jar
-   publicado e o envia direto para o Azure App Service de staging via
-   `azure/webapps-deploy@v3`, autenticado por **Publish Profile** (secret do GitHub, gerado
-   pelo próprio App Service, não Service Principal/OIDC), e faz um smoke test em
-   `GET /actuator/health` antes de considerar o job bem-sucedido. O App Service já está
-   configurado com `SPRING_PROFILES_ACTIVE=staging` (H2 em memória, modo Oracle, ver seção
-   Profiles) diretamente nas suas Application settings.
-3. **`deploy-production`**: GitHub Environment `prod`, só roda depois que o deploy em
-   staging passou. Mesma lógica (mesmo jar, deploy + smoke test), autenticado pelo Publish
-   Profile do App Service de produção (`SPRING_PROFILES_ACTIVE=prod`, credenciais do Oracle da
-   FIAP, também configuradas direto nas Application settings do App Service, não pelo
-   pipeline). Este Environment tem um **required reviewer** configurado no GitHub, então o
-   pipeline continua totalmente automatizado e só pausa esperando uma aprovação manual antes de
-   tocar em produção.
+2. **`deploy-staging`**: roda em push na `main` ou quando disparado manualmente pela aba
+   Actions (`workflow_dispatch`), nunca em pull request. Baixa o jar publicado, autentica via
+   **OIDC** (`azure/login@v2`, com App Registration e federated credential gerados
+   automaticamente pelo Deployment Center do Azure — sem Service Principal/Publish Profile
+   configurados manualmente) e o envia direto para o Azure App Service de staging via
+   `azure/webapps-deploy@v3`, fazendo um smoke test em `GET /actuator/health` antes de
+   considerar o job bem-sucedido. O App Service já está configurado com
+   `SPRING_PROFILES_ACTIVE=staging` (H2 em memória, modo Oracle, ver seção Profiles)
+   diretamente nas suas Application settings.
+3. **`deploy-production`**: só roda depois que o deploy em staging passou. Mesma lógica (mesmo
+   jar, login OIDC + deploy + smoke test), com o trio de credenciais OIDC do App Service de
+   produção (`SPRING_PROFILES_ACTIVE=prod`, credenciais do Oracle da FIAP, também configuradas
+   direto nas Application settings do App Service, não pelo pipeline). Não há gate de
+   aprovação manual via GitHub Environments — declarar `environment:` no job mudaria o subject
+   do token OIDC (de `ref:refs/heads/main` para `environment:<nome>`) e quebraria o login
+   contra a federated credential existente, então o deploy em produção roda automaticamente
+   assim que staging passa.
 
 **Deploy direto do `.jar`, sem Docker/registry no Azure**: os dois Azure App Service
 (`staging` e `prod`) são configurados como **Publish: Code**, **Runtime: Java 21**,
@@ -437,21 +439,27 @@ credenciais nem arriscar dados de um ambiente vazando pro outro. O efeito colate
 que o banco de staging reseta a cada deploy/restart (não guarda nada entre execuções).
 
 **Infraestrutura de destino**: dois Azure App Service (Linux, Java 21/Java SE), um por ambiente
-(`staging` e `prod`), cada um com suas próprias variáveis de ambiente configuradas como
-secrets/variables do respectivo GitHub Environment.
+(`gestao-residuos-staging` e `gestao-residuos-prod`), cada um com suas próprias Application
+settings (`SPRING_PROFILES_ACTIVE`, `JWT_SECRET`, `DB_USER`/`DB_PASS` em produção) configuradas
+direto no App Service. As credenciais OIDC de cada ambiente (client-id/tenant-id/
+subscription-id, um trio por App Service) ficam como secrets do repositório no GitHub,
+gerados automaticamente pelo Deployment Center do Azure — não são repository variables nem
+GitHub Environment secrets.
 
 ---
 
 ## Prints do funcionamento
 
-> Preencher após o primeiro deploy real em staging e produção.
+> Deploy real em staging e produção já validado (pipeline verde de ponta a ponta). Falta só
+> anexar as capturas de tela abaixo.
 
 - [ ] Print do job `build-and-test` passando (GitHub Actions).
 - [ ] Print do job `deploy-staging` publicando o jar no App Service e do smoke test
   (`{"status":"UP"}`) contra a URL de staging.
-- [ ] Print da aprovação manual do Environment `prod` e do `deploy-production` passando.
-- [ ] Print do smoke test contra a URL de produção.
+- [ ] Print do job `deploy-production` passando e do smoke test contra a URL de produção.
 - [ ] Print do Swagger UI (`/swagger-ui.html`) funcionando em staging e produção.
+- [ ] Print de um fluxo real (registro/login + endpoint autenticado) funcionando em pelo
+  menos um dos dois ambientes.
 
 ---
 
@@ -465,7 +473,7 @@ secrets/variables do respectivo GitHub Environment.
 | Pipeline com etapas de build, teste e deploy | ☑ |
 | `README.md` com instruções e prints | ☐ (falta anexar os prints) |
 | Documentação técnica com evidências (PDF ou PPT) | ☐ |
-| Deploy realizado nos ambientes staging e produção | ☐ (recursos Azure ainda não provisionados) |
+| Deploy realizado nos ambientes staging e produção | ☑ |
 
 ---
 
