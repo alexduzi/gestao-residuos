@@ -53,9 +53,8 @@ jobs:
           retention-days: 5
 
   # ---------------------------------------------------------------------------
-  # Deploy em staging. Ambiente "staging" do GitHub -- secrets/vars proprios
-  # (Environment), sem approval obrigatorio. Roda em push na main ou disparo manual
-  # (workflow_dispatch) -- nao roda em pull request.
+  # Deploy em staging. Roda em push na main ou disparo manual (workflow_dispatch)
+  # -- nao roda em pull request.
   #
   # Deploy direto do .jar (Azure App Service, stack "Java SE / Embedded Web
   # Server") -- nao usa Azure Container Registry nem imagem Docker: a conta
@@ -70,6 +69,11 @@ jobs:
   # ("client-id and tenant-id are supplied"). slot-name e sempre "Production"
   # (o slot padrao de qualquer App Service) porque staging e producao sao dois
   # App Services separados, nao deployment slots dentro de um so.
+  #
+  # SEM bloco `environment:` de proposito: declarar `environment:` no job muda
+  # o "subject" do token OIDC de `ref:refs/heads/main` para `environment:<nome>`,
+  # e a federated credential que o portal criou so aceita o subject baseado em
+  # ref -- usar `environment:` aqui quebra o login com AADSTS700213 (testado).
   # ---------------------------------------------------------------------------
   deploy-staging:
     name: Deploy (staging)
@@ -79,9 +83,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    environment:
-      name: staging
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     steps:
       - name: Download jar artifact
         uses: actions/download-artifact@v4
@@ -110,10 +111,9 @@ jobs:
             ${{ steps.deploy-to-webapp.outputs.webapp-url }}/actuator/health
 
   # ---------------------------------------------------------------------------
-  # Deploy em producao. Ambiente "production" do GitHub -- configure um
-  # required reviewer em Settings > Environments para exigir aprovacao manual
-  # antes deste job rodar (o pipeline continua automatico, so pausa por 1
-  # aprovacao). So dispara depois que o deploy em staging passou.
+  # Deploy em producao. So dispara depois que o deploy em staging passou.
+  # SEM `environment: prod` pelo mesmo motivo do job de staging (ver acima) --
+  # por isso tambem sem gate de aprovacao manual via GitHub Environments.
   # ---------------------------------------------------------------------------
   deploy-production:
     name: Deploy (production)
@@ -122,9 +122,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    environment:
-      name: prod
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     steps:
       - name: Download jar artifact
         uses: actions/download-artifact@v4
