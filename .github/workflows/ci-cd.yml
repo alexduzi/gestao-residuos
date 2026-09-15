@@ -63,18 +63,22 @@ jobs:
   # repo continuam servindo para rodar o projeto localmente (requisito de
   # containerizacao da atividade), so o deploy no Azure e que e via jar.
   #
-  # Autenticacao via Publish Profile (secret baixado direto do portal do App
-  # Service), nao Service Principal/OIDC -- a conta de estudante normalmente
-  # nao tem permissao para criar App Registration no Azure AD. Por isso as
-  # variaveis de ambiente do App Service (SPRING_PROFILES_ACTIVE, JWT_SECRET,
-  # DB_USER/DB_PASS) precisam ser configuradas manualmente uma vez no portal
-  # (Configuration > Application settings) -- o pipeline nao roda `az cli`.
+  # Autenticacao via OIDC (azure/login), com client-id/tenant-id/subscription-id
+  # gerados automaticamente pelo Azure Portal (Deployment Center > GitHub Actions)
+  # -- foi o proprio portal que criou o App Registration e a federated credential
+  # por baixo dos panos, o que resolveu o erro anterior de OIDC manual
+  # ("client-id and tenant-id are supplied"). slot-name e sempre "Production"
+  # (o slot padrao de qualquer App Service) porque staging e producao sao dois
+  # App Services separados, nao deployment slots dentro de um so.
   # ---------------------------------------------------------------------------
   deploy-staging:
     name: Deploy (staging)
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: staging
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
@@ -85,13 +89,19 @@ jobs:
           name: app-jar
           path: app-jar
 
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_0DD5968D44E14E0B912D34A841464B73 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E0448331709E493C8EF9F8431E831723 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_6D7D0894BFF84784A1BDF2045702730D }}
+
       - name: Deploy no Azure App Service (staging)
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME_STAGING }}
-          slot-name: 'staging'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
+          app-name: 'gestao-residuos-staging'
+          slot-name: 'Production'
           package: app-jar/*.jar
 
       - name: Smoke test (health check)
@@ -109,6 +119,9 @@ jobs:
     name: Deploy (production)
     needs: deploy-staging
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: prod
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
@@ -119,13 +132,19 @@ jobs:
           name: app-jar
           path: app-jar
 
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_B480F02EFC834B4F9EDAA616FB6BD57D }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_47B9830E8AD247E095BF666B31BB7ABB }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F7AEA80D886B4DF2B957E754DF453BD9 }}
+
       - name: Deploy no Azure App Service (producao)
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME_PROD }}
-          slot-name: 'prod'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_PROD }}
+          app-name: 'gestao-residuos-prod'
+          slot-name: 'Production'
           package: app-jar/*.jar
 
       - name: Smoke test (health check)
