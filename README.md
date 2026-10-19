@@ -311,41 +311,125 @@ Expecting empty but was: ["$.idTipo: integer found, string expected"]
 
 ---
 
-## Defeitos encontrados pelos testes
+## Desafios
 
-A escrita dos testes revelou dois defeitos reais na API. Os dois foram corrigidos:
+O principal desafio da atividade foi que **os testes encontraram dois defeitos reais na API**,
+que até então passavam despercebidos (os testes unitários existentes não os cobriam). Os dois
+foram investigados e corrigidos no código de produção, e os cenários que os revelaram passaram
+a proteger contra regressões.
 
-1. **Alerta de capacidade disparando abaixo de 90%.** `PontoColetaService` calculava
-   `volume / capacidade` com 4 casas decimais e arredondamento `HALF_UP` antes de comparar com
-   0,90. Um ponto de 200 kg com 179,99 kg (89,995%) virava `0.9000` e gerava um alerta
-   indevido. O cenário "Volume abaixo de 90% da capacidade não gera alerta" falhava. A correção
-   compara o volume diretamente com `capacidade × 0,90`, sem arredondamento.
-2. **`GET /consolidado/mes/{mesAno}` nunca retornava dados.** O mês é gravado como `MM/yyyy`,
-   mas a barra não chega ao parâmetro do path: `/consolidado/mes/10/2025` vira outra rota
-   (403) e `10%2F2025` é rejeitado pelo Tomcat (400). Já o formato `MM-yyyy`, que era o
-   documentado em `docs/api.http`, devolvia sempre uma lista vazia. A correção:
-   `ConsolidadoReciclagemService` aceita `MM-yyyy` no path e converte para `MM/yyyy` antes de
-   consultar.
+### 1. Alerta de capacidade disparando abaixo de 90%
+
+- **Como apareceu:** o cenário de limite *"Volume abaixo de 90% da capacidade não gera alerta"*
+  (`features/negocio/alerta_capacidade.feature`) falhou: um ponto de 200 kg atualizado para
+  179,99 kg (89,995% da capacidade) gerava um alerta ESG.
+- **Causa:** `PontoColetaService.gerarAlertaSeNecessario` calculava `volume / capacidade` com
+  4 casas decimais e `RoundingMode.HALF_UP` antes de comparar com 0,90. O valor `0,89995` era
+  arredondado para `0,9000` e passava na comparação `>= 0,90`.
+- **Correção:** comparar o volume diretamente com `capacidade × 0,90`, sem divisão nem
+  arredondamento:
+
+  ```java
+  // Compara sem arredondar: dividir com escala fixa fazia 89,995% virar 90% e gerar alerta.
+  BigDecimal limite = capacidade.multiply(LIMITE_ALERTA);
+  if (volume.compareTo(limite) >= 0) {
+  ```
+
+- **Como foi confirmado:** o cenário foi executado contra o código original (falha) e contra o
+  código corrigido (passa). O cenário vizinho, com exatamente 180 kg (90%), continua gerando o
+  alerta.
+
+### 2. `GET /consolidado/mes/{mesAno}` nunca retornava dados
+
+- **Como apareceu:** ao escrever o cenário *"Consultar o consolidado de um mês"*
+  (`features/api/consolidado.feature`), não havia forma de chamar o endpoint e receber o
+  consolidado que existe no banco.
+- **Causa:** o mês é gravado como `MM/yyyy` (ex.: `10/2025`), e a barra não consegue chegar ao
+  parâmetro do path:
+
+  | Chamada | Resultado |
+  |---|---|
+  | `/consolidado/mes/10/2025` | 403: vira outra rota, que não existe |
+  | `/consolidado/mes/10%2F2025` | 400: barra codificada é rejeitada pelo Tomcat |
+  | `/consolidado/mes/10-2025` (formato de `docs/api.http`) | 200, mas sempre com lista vazia |
+
+- **Correção:** `ConsolidadoReciclagemService.findByMesAno` passou a aceitar `MM-yyyy` no path
+  (o formato que a documentação já usava) e converte para `MM/yyyy` antes de consultar:
+
+  ```java
+  return consolidadoRepository.findByMesAno(mesAno.replace('-', '/')).stream()
+  ```
+
+- **Como foi confirmado:** `GET /consolidado/mes/10-2025` agora devolve o registro esperado
+  (Eletronico, `10/2025`, 150 kg), validado por campos e pelo contrato
+  `consolidado-reciclagem` (print 05).
+
+### Detalhe de configuração que também exigiu atenção
+
+Com o Gherkin em português (`# language: pt`), o Cucumber interpreta os parâmetros
+`{bigdecimal}` na localidade pt-BR, em que o ponto é separador de milhar: `179.99` era lido como
+`17999`. Por isso os valores decimais nos `.feature` são escritos com vírgula (`179,99`).
 
 ---
 
 ## Evidências de execução
 
-Os prints da execução dos testes ficam na pasta [`evidencias/`](evidencias/):
+Os prints ficam na pasta [`evidencias/`](evidencias/). A suíte foi executada **localmente**
+(`./mvnw test`, relatório HTML do Cucumber em `target/cucumber-reports/cucumber.html`) e,
+como verificação extra, também no **GitHub Actions**.
 
-- execução no terminal (`./mvnw test` com `BUILD SUCCESS`);
-- relatório HTML do Cucumber;
-- configuração do projeto (`pom.xml`, runner, profile `bdd`).
+### Configuração dos testes
+
+| # | Arquivo | Conteúdo |
+|---|---|---|
+| 15 | [`15_config_pom_dependencias_teste.png`](evidencias/15_config_pom_dependencias_teste.png) | Dependências de teste no `pom.xml`: Cucumber, JUnit Platform Suite, RestAssured e json-schema-validator |
+| 16 | [`16_config_application_bdd_properties.png`](evidencias/16_config_application_bdd_properties.png) | Profile `bdd`: H2 em memória (modo Oracle) e Flyway com as migrations de produção + dados de teste |
+
+### Execução local: terminal
+
+| # | Arquivo | Conteúdo |
+|---|---|---|
+| 14 | [`14_terminal_mvnw_test_build_success.png`](evidencias/14_terminal_mvnw_test_build_success.png) | Final do `./mvnw test`: 54 cenários Cucumber e 76 testes no total, 0 falhas, `BUILD SUCCESS` |
+
+![Execução local no terminal](evidencias/14_terminal_mvnw_test_build_success.png)
+
+### Execução local: relatório do Cucumber
+
+| # | Arquivo | Conteúdo |
+|---|---|---|
+| 01 | [`01_cucumber_relatorio_resumo_54_cenarios.png`](evidencias/01_cucumber_relatorio_resumo_54_cenarios.png) | Resumo: 54 cenários, 100% aprovados, Cucumber 7.18.1, Java 21 |
+| 02 | [`02_cucumber_api_alertas.png`](evidencias/02_cucumber_api_alertas.png) | API de alertas de capacidade |
+| 03 | [`03_cucumber_api_autenticacao.png`](evidencias/03_cucumber_api_autenticacao.png) | API de autenticação (cadastro, e-mail duplicado, validação) |
+| 04 | [`04_cucumber_api_coletas.png`](evidencias/04_cucumber_api_coletas.png) | API de coletas realizadas |
+| 05 | [`05_cucumber_api_consolidado.png`](evidencias/05_cucumber_api_consolidado.png) | API de consolidado de reciclagem (inclui a consulta por mês corrigida) |
+| 06 | [`06_cucumber_api_notificacoes.png`](evidencias/06_cucumber_api_notificacoes.png) | API de notificações |
+| 07 | [`07_cucumber_api_pontos_coleta.png`](evidencias/07_cucumber_api_pontos_coleta.png) | API de pontos de coleta |
+| 08 | [`08_cucumber_api_tipos_residuo.png`](evidencias/08_cucumber_api_tipos_residuo.png) | API de tipos de resíduo |
+| 09 | [`09_cucumber_negocio_alerta_capacidade.png`](evidencias/09_cucumber_negocio_alerta_capacidade.png) | Cenários BDD 1 e 2: alerta aos 90% e limite de 179,99 kg |
+| 10 | [`10_cucumber_negocio_controle_acesso.png`](evidencias/10_cucumber_negocio_controle_acesso.png) | Cenário BDD 5: usuário comum não registra coleta (403) |
+| 11 | [`11_cucumber_negocio_registro_coleta.png`](evidencias/11_cucumber_negocio_registro_coleta.png) | Cenários BDD 3 e 4: coleta registrada e ponto inexistente (404) |
+
+![Resumo do relatório do Cucumber](evidencias/01_cucumber_relatorio_resumo_54_cenarios.png)
+
+### Execução no GitHub Actions
+
+| # | Arquivo | Conteúdo |
+|---|---|---|
+| 12 | [`12_github_actions_build_test_log.png`](evidencias/12_github_actions_build_test_log.png) | Log do job Build & Test: `Tests run: 76, Failures: 0`, `BUILD SUCCESS` |
+| 13 | [`13_github_actions_pipeline_sucesso.png`](evidencias/13_github_actions_pipeline_sucesso.png) | Pipeline completo concluído com sucesso |
+
+![Log do Build & Test no GitHub Actions](evidencias/12_github_actions_build_test_log.png)
 
 ---
 
-## Integração contínua (opcional)
+## Integração contínua
 
 A entrega executa os testes **localmente**. Mesmo assim, o repositório mantém o workflow do
 GitHub Actions em [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml), herdado da
 atividade anterior de DevOps. Como a suíte Cucumber roda pelo Surefire dentro do `./mvnw test`,
-o job `build-and-test` desse workflow **já executaria todos os cenários BDD e de API sem
-nenhuma alteração**, porque eles não dependem de banco externo nem de secrets.
+o job `build-and-test` executa todos os cenários BDD e de API **sem nenhuma alteração no
+workflow**, porque eles não dependem de banco externo nem de secrets. Isso foi confirmado com
+uma execução real no GitHub Actions (prints 12 e 13): os mesmos 76 testes passaram.
 
 ---
 
@@ -482,21 +566,6 @@ Documentação completa em `/swagger-ui.html` (com a aplicação rodando) ou no 
   `AlertaCapacidade` quando o volume atinge ou ultrapassa 90% da capacidade máxima.
 
 </details>
-
----
-
-## Checklist de entrega
-
-| Item | OK |
-|---|---|
-| No mínimo 3 cenários BDD em Gherkin, positivos e negativos (feitos: 5) | ☑ |
-| Testes de API para todas as APIs (28 endpoints) | ☑ |
-| Validação de status code | ☑ |
-| Validação do corpo da resposta (JSON) | ☑ |
-| Testes de contrato com JSON Schema | ☑ |
-| Execução simples e documentada (`./mvnw test`) | ☑ |
-| Código-fonte em `.zip` com testes, Dockerfile, scripts e README | ☐ |
-| Documentação (PDF/PPT) com cenários Gherkin, prints de configuração e evidências | ☐ |
 
 ---
 
