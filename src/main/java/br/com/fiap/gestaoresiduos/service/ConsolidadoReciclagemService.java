@@ -24,7 +24,10 @@ public class ConsolidadoReciclagemService {
 
     @Transactional(readOnly = true)
     public List<ConsolidadoReciclagemResponse> findByMesAno(String mesAno) {
-        return consolidadoRepository.findByMesAno(mesAno).stream()
+        // O mes e gravado como "MM/yyyy", mas a barra nao pode trafegar no path
+        // (/consolidado/mes/10/2025 vira outra rota e %2F e rejeitado pelo Tomcat),
+        // entao o endpoint recebe "MM-yyyy" e converte aqui.
+        return consolidadoRepository.findByMesAno(mesAno.replace('-', '/')).stream()
                 .map(ConsolidadoReciclagemResponse::from)
                 .toList();
     }

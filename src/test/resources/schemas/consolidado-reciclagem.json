@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConsolidadoReciclagemResponse",
+  "type": "object",
+  "required": ["idConsolidado", "tipoResiduo", "mesAno", "totalRecicladoKg"],
+  "additionalProperties": false,
+  "properties": {
+    "idConsolidado": { "type": "integer", "minimum": 1 },
+    "tipoResiduo": { "type": "string", "minLength": 1 },
+    "mesAno": { "type": "string", "pattern": "^(0[1-9]|1[0-2])/\\d{4}$" },
+    "totalRecicladoKg": { "type": "number", "minimum": 0 }
+  }
+}

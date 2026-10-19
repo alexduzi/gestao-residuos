@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TipoResiduoResponse",
+  "type": "object",
+  "required": ["idTipo", "descricao", "reciclavel", "perigoso"],
+  "additionalProperties": false,
+  "properties": {
+    "idTipo": { "type": "integer", "minimum": 1 },
+    "descricao": { "type": "string", "minLength": 1, "maxLength": 50 },
+    "reciclavel": { "type": "string", "enum": ["S", "N"] },
+    "perigoso": { "type": "string", "enum": ["S", "N"] }
+  }
+}

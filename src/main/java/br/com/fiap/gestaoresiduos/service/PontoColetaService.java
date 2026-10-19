@@ -12,7 +12,6 @@ import br.com.fiap.gestaoresiduos.repository.AlertaCapacidadeRepository;
 import br.com.fiap.gestaoresiduos.repository.PontoColetaRepository;
 import br.com.fiap.gestaoresiduos.repository.TipoResiduoRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -116,8 +115,9 @@ public class PontoColetaService {
         if (capacidade == null || volume == null || capacidade.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
-        BigDecimal percentual = volume.divide(capacidade, 4, RoundingMode.HALF_UP);
-        if (percentual.compareTo(LIMITE_ALERTA) >= 0) {
+        // Compara sem arredondar: dividir com escala fixa fazia 89,995% virar 90% e gerar alerta.
+        BigDecimal limite = capacidade.multiply(LIMITE_ALERTA);
+        if (volume.compareTo(limite) >= 0) {
             AlertaCapacidade alerta = new AlertaCapacidade();
             alerta.setPontoColeta(ponto);
             alerta.setDataGeracao(LocalDate.now());
